@@ -16,8 +16,7 @@ Source: [NYC Taxi & Limousine Commission (TLC) trip records](https://www.nyc.gov
 | FHVHV | High-volume for-hire vehicle trips (Uber, Lyft, etc.) |
 | Taxi zone lookup | Maps each location ID to a borough, zone, and service zone |
 
-Year: 2023
-Months loaded: _TODO: confirm the months in the data (see "Checking data coverage" below)_
+Time period: **January 2023**, all four taxi types. The final table holds about 22.3 million trips. Forty-two rows have pickup timestamps outside January 2023 (from 2008 to 2022, plus a few in February 2023). They come from the source files and were left in.
 
 ## Architecture
 
@@ -93,13 +92,38 @@ Results are written to `ims-dbr-stage` and registered as `nytaxi.staging.<datase
 
 `published_bus_problems` answers three questions with Spark SQL:
 
-1. **Where?** Which pickup and dropoff zones and boroughs are busiest, and how much fare revenue does each generate?
-2. **When?** At what hour, day of week, and month are trips and revenue highest?
-3. **Which taxi type?** How do the four types compare on total trips, total and average fare revenue, and average trip duration?
+1. **Where?** Which zones and boroughs are busiest for pickups and dropoffs, and what is the total fare revenue for each zone and borough?
+2. **When?** When do trips happen most (by hour, day of week, and month), and when is the most revenue generated?
+3. **Which taxi type?** Which type has the most trips and the highest revenue, and what are the average fare and average trip duration per trip?
 
 ## Key findings
 
-_TODO: add results from the business queries (top zones, busiest hours, taxi type comparison)._
+Results for January 2023 (about 22.3 million trips and $448.8 million in fare revenue).
+
+### Where
+
+- **Manhattan dominates pickups:** 10.2 million trips (about 46% of the total) and $214.4 million in fare revenue.
+- **Queens earns more than Brooklyn despite fewer trips** ($100.5 million vs $91.2 million, on 3.9 million vs 4.8 million trips), because of the airports.
+- **Airports lead on revenue.** The top pickup zones by trip count are JFK Airport (494K), LaGuardia Airport (392K), Midtown Center (369K), East Village (349K), and Times Sq/Theatre District (338K). JFK ($28.2 million) and LaGuardia ($16.3 million) earn far more than any other zone; the best non-airport zone, Times Sq/Theatre District, brings in $8.6 million.
+- **Newark Airport is a dropoff destination, not a pickup zone:** 126K trips dropped off there ($8.0 million, about $63 per trip), against only 319 pickups.
+- **"Outside of NYC" tops the pickup ranking** with 883K trips but only $45K in fare revenue. These are most likely FHV trips with a missing pickup zone, which staging fills with location ID 265 (see Notes). As a dropoff it has 939K trips and $42.2 million, which are real long-distance rides.
+
+### When
+
+- **Rush hour is the peak.** 6 PM is the busiest pickup hour (1.39 million trips), with 5 PM and 7 PM close behind. Revenue peaks at 5 PM ($27.0 million, nearly tied with 6 PM). The quietest hour is 4 AM (313K trips).
+- **Saturday is the busiest day once the calendar is accounted for.** Sunday has the highest total (3.62 million trips), but January 2023 had five Sundays and only four Saturdays. Per day, Saturday averages about 848K trips and Sunday about 725K.
+- **Month comparison isn't possible:** all the data is from January.
+
+### Which taxi type
+
+| Taxi type | Trips | Fare revenue | Avg fare | Avg duration (min) |
+|---|---|---|---|---|
+| FHVHV | 18,172,972 | $393.1M | $21.63 | 18.2 |
+| Yellow | 2,940,085 | $54.6M | $18.58 | 15.4 |
+| FHV | 1,112,952 | no fare data | n/a | 24.7 |
+| Green | 63,950 | $1.05M | $16.48 | 17.8 |
+
+High-volume for-hire vehicles (Uber, Lyft, and similar) account for over 80% of all trips and most of the fare revenue. Yellow cabs are second, and green cabs are a very small share. FHV has the longest average trip, but see the note on its data quality below.
 
 ## Setup
 
@@ -130,6 +154,10 @@ ORDER BY pu_year, pu_month, taxi_type;
 - **Day of week is numeric**, using Spark's convention: 1 = Sunday through 7 = Saturday.
 - **Unknown zones** (IDs 264 and 265) are flagged with `is_pu_unknown` and `is_do_unknown`, not removed. Filter on those flags to exclude them from zone rankings.
 - **Invalid rows are dropped silently** in the staging step, and each run reprocesses all data (it is not incremental).
+- **Only January 2023 is loaded**, so month-level comparisons are not meaningful.
+- **Day-of-week totals are not normalized.** January 2023 had five Sundays, Mondays, and Tuesdays but only four of each other day, so compare per-day averages, not raw totals.
+- **Missing FHV zones are filled with ID 265** ("Outside of NYC") in staging, which inflates that zone in pickup and dropoff rankings. Use `is_pu_unknown` and `is_do_unknown` to exclude it.
+- **FHV has no row filters and no fare data**, so its average trip duration is less reliable than the other three types.
 
 ## Tech stack
 
